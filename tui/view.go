@@ -130,6 +130,13 @@ func renderMode(m session.Mode) string {
 }
 
 func (m Model) View() string {
+	if m.fullView {
+		return m.viewFullOutput()
+	}
+	return m.viewDashboard()
+}
+
+func (m Model) viewDashboard() string {
 	var b strings.Builder
 
 	w := m.width
@@ -243,15 +250,37 @@ func (m Model) View() string {
 			b.WriteString(label + "\n")
 			b.WriteString("  " + border + "\n")
 
-			if len(info.Preview) == 0 {
+			visibleLines := m.visiblePreviewLines()
+			preview := info.Preview
+			total := len(preview)
+
+			if total == 0 {
 				b.WriteString("  " + dimStyle.Render("  (no output yet)") + "\n")
 			} else {
-				for _, line := range info.Preview {
+				// Apply scroll: scroll=0 means show the latest lines (bottom)
+				end := total - m.previewScroll
+				if end < 0 {
+					end = 0
+				}
+				start := end - visibleLines
+				if start < 0 {
+					start = 0
+				}
+
+				if start > 0 {
+					b.WriteString("  " + dimStyle.Render(fmt.Sprintf("  ↑ %d more lines", start)) + "\n")
+				}
+
+				for _, line := range preview[start:end] {
 					display := line
 					if len(display) > previewWidth-4 {
 						display = display[:previewWidth-7] + "..."
 					}
 					b.WriteString("  " + previewTextStyle.Render("  "+display) + "\n")
+				}
+
+				if m.previewScroll > 0 {
+					b.WriteString("  " + dimStyle.Render(fmt.Sprintf("  ↓ %d more lines", m.previewScroll)) + "\n")
 				}
 			}
 
@@ -264,9 +293,96 @@ func (m Model) View() string {
 	keys := []string{
 		keyStyle.Render("arrows") + footerStyle.Render(" navigate"),
 		keyStyle.Render("enter") + footerStyle.Render(" focus"),
+		keyStyle.Render("v") + footerStyle.Render(" full view"),
 		keyStyle.Render("s") + footerStyle.Render(" spawn"),
 		keyStyle.Render("c") + footerStyle.Render(" clean"),
 		keyStyle.Render("q") + footerStyle.Render(" quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, footerStyle.Render("  ")) + "\n")
+
+	return b.String()
+}
+
+func (m Model) viewFullOutput() string {
+	var b strings.Builder
+
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+
+	previewWidth := w - 4
+	if previewWidth < 40 {
+		previewWidth = 40
+	}
+
+	border := previewBorderStyle.Render(strings.Repeat("─", previewWidth))
+
+	// Header
+	b.WriteString("  " + border + "\n")
+
+	if m.cursor >= 0 && m.cursor < len(m.sessions) {
+		info := m.sessions[m.cursor]
+		label := fmt.Sprintf("  %s  %s  %s  %s",
+			previewLabelStyle.Render(fmt.Sprintf("#%d", m.cursor+1)),
+			renderStatus(info.Status),
+			renderMode(info.Mode),
+			dimStyle.Render(shortenPath(info.Session.CWD)),
+		)
+		b.WriteString(label + "\n")
+	}
+
+	b.WriteString("  " + border + "\n")
+
+	visible := m.visibleFullViewLines()
+	total := len(m.fullViewLines)
+
+	if total == 0 {
+		b.WriteString("  " + dimStyle.Render("  (no output)") + "\n")
+		for i := 1; i < visible; i++ {
+			b.WriteString("\n")
+		}
+	} else {
+		start := m.fullViewScroll
+		end := start + visible
+		if end > total {
+			end = total
+		}
+
+		for _, line := range m.fullViewLines[start:end] {
+			display := line
+			if len(display) > previewWidth-4 {
+				display = display[:previewWidth-7] + "..."
+			}
+			b.WriteString("  " + previewTextStyle.Render("  "+display) + "\n")
+		}
+
+		// Pad remaining lines so footer stays at the bottom
+		shown := end - start
+		for i := shown; i < visible; i++ {
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("  " + border + "\n")
+
+	// Scroll position
+	if total > visible {
+		endLine := min(m.fullViewScroll+visible, total)
+		pos := fmt.Sprintf("lines %d–%d of %d", m.fullViewScroll+1, endLine, total)
+		b.WriteString("  " + dimStyle.Render(pos) + "\n")
+	} else {
+		b.WriteString("\n")
+	}
+
+	// Footer
+	b.WriteString("\n")
+	keys := []string{
+		keyStyle.Render("esc") + footerStyle.Render(" back"),
+		keyStyle.Render("↑↓/jk") + footerStyle.Render(" scroll"),
+		keyStyle.Render("pgup/pgdn") + footerStyle.Render(" page"),
+		keyStyle.Render("home/end") + footerStyle.Render(" jump"),
+		keyStyle.Render("r") + footerStyle.Render(" refresh"),
 	}
 	b.WriteString("  " + strings.Join(keys, footerStyle.Render("  ")) + "\n")
 

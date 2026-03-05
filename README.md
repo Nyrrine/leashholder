@@ -18,22 +18,23 @@ LEASH  1 idle
   ──────────────────────────────────────────────────────────
   #1  IDLE        plan  ~/projects/api-server
   ──────────────────────────────────────────────────────────
-    You know what's really wonderful? The fact that you're
-    here, working on things that matter to you.
+    Sure, I can help with that. Let me take a look at the
+    codebase and figure out what needs to change.
   ──────────────────────────────────────────────────────────
 
-  arrows navigate  enter focus  s spawn  c clean  q quit
+  arrows navigate  enter focus  v full view  s spawn  c clean  q quit
 ```
 
 ## Install
 
 ```bash
-cd leash/
+git clone https://github.com/Nyrrine/leashholder.git
+cd leashholder/
 go build -o leash .
 sudo cp leash /usr/local/bin/
 ```
 
-Requires Go 1.24+ to build. The output is a single static binary.
+Requires **Go 1.24+** to build. The output is a single static binary.
 
 ## Commands
 
@@ -44,15 +45,31 @@ Requires Go 1.24+ to build. The output is a single static binary.
 | `leash worker --session-id <id> --cwd <path> [-- claude-args...]` | Internal — runs inside the spawned window. Users don't call this directly |
 | `leash clean` | Removes session files for dead/finished processes |
 
-## Dashboard
+## Keybindings
 
-- **Arrow keys** — navigate between sessions
-- **Enter** — focus the selected session's terminal window
-- **s** — spawn a new Claude session
-- **c** — clean finished sessions
-- **q** — quit
+### Dashboard
 
-### Status Detection
+| Key | Action |
+|-----|--------|
+| `↑` `↓` | Navigate between sessions |
+| `Enter` | Focus the selected session's terminal window |
+| `v` | Open full output view for the selected session |
+| `PgUp` `PgDn` | Scroll the preview pane |
+| `s` | Spawn a new Claude session |
+| `c` | Clean finished sessions |
+| `q` | Quit |
+
+### Full Output View
+
+| Key | Action |
+|-----|--------|
+| `↑` `↓` / `j` `k` | Scroll one line |
+| `PgUp` `PgDn` | Scroll one page |
+| `Home` `End` | Jump to top / bottom |
+| `r` | Refresh content |
+| `Esc` / `q` | Back to dashboard |
+
+## Status Detection
 
 Status is detected by comparing log file size between 2-second polling intervals:
 
@@ -62,29 +79,17 @@ Status is detected by comparing log file size between 2-second polling intervals
 | **IDLE** | Log stopped growing — Claude is waiting for your input |
 | **DONE** | Process exited |
 
-### Mode Detection
+## Mode Detection
 
 Mode is parsed from the terminal output:
 
 | Mode | Meaning |
 |------|---------|
 | **code** | Default mode |
-| **plan** | Plan mode active (`plan mode on` detected) |
-| **edit** | Accept edits mode active (`accept edits on` detected) |
+| **plan** | Plan mode active |
+| **edit** | Accept edits mode active |
 
-### Preview Pane
-
-The preview shows the last 8 lines of meaningful Claude output for the selected session. The log is captured via `script(1)` which records terminal output while keeping Claude fully interactive. The preview pipeline:
-
-1. Reads the last 16KB of the log file (efficient tail read)
-2. Converts cursor-forward ANSI sequences (`ESC[nC`) to spaces
-3. Strips all remaining ANSI escape codes
-4. Removes non-printable and box-drawing characters
-5. Filters out lines with fewer than 3 real words (kills UI chrome)
-6. Filters out known noise patterns (shortcuts hints, status bars, etc.)
-7. Deduplicates incremental keystroke echoes
-
-## Architecture
+## How It Works
 
 ### Session Registry
 
@@ -105,6 +110,18 @@ The preview shows the last 8 lines of meaningful Claude output for the selected 
 5. `leash worker` updates the session JSON with its PID, then runs `script -qfc "claude <args>" <logfile>`
 6. Claude runs fully interactively — the user works with it as normal
 7. On exit, the session status is set to `done`
+
+### Preview Pipeline
+
+The log from `script(1)` captures raw terminal bytes including ANSI escape codes, cursor positioning, and full-screen TUI redraws. The cleaning pipeline extracts readable output:
+
+1. Reads the last 16KB of the log file (efficient tail read)
+2. Splits lines on carriage returns to separate Claude's response text from UI chrome that shares the same terminal line
+3. Converts cursor-forward ANSI sequences (`ESC[nC`) to spaces
+4. Strips all remaining ANSI escape codes and non-printable characters
+5. Preserves leading indentation (up to 8 spaces) for code blocks
+6. Filters out known UI noise (shortcuts hints, status bars, startup screen, thinking indicators)
+7. Deduplicates keystroke echoes and partial-render fragments
 
 ### Focus
 

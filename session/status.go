@@ -40,7 +40,6 @@ func stripANSI(s string) string {
 func stripNonPrint(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r == '\t' || (unicode.IsPrint(r) && r < 0x2500) {
-			// Keep printable ASCII and common unicode, drop box-drawing (U+2500+) and block elements
 			return r
 		}
 		if r >= 0x2500 {
@@ -94,8 +93,7 @@ func DetectStatus(s *Session, prevLogSize, currLogSize int64) DetectedStatus {
 
 // DetectMode parses the raw log tail for Claude Code's mode indicator.
 func DetectMode(logPath string) Mode {
-	raw := lastNLines(logPath, 60)
-	// Scan from bottom up for the most recent mode indicator
+	raw := lastNLinesTail(logPath, 60, 16384)
 	for i := len(raw) - 1; i >= 0; i-- {
 		clean := stripANSI(raw[i])
 		lower := strings.ToLower(clean)
@@ -105,7 +103,6 @@ func DetectMode(logPath string) Mode {
 		if strings.Contains(lower, "accept edits on") {
 			return ModeEdit
 		}
-		// If we see the prompt area or a mode-off indicator, it's default
 		if strings.Contains(lower, "plan mode off") ||
 			strings.Contains(lower, "accept edits off") {
 			return ModeDefault
@@ -114,60 +111,139 @@ func DetectMode(logPath string) Mode {
 	return ModeDefault
 }
 
-// wordRe matches sequences of word characters.
+// wordRe matches sequences of word characters (2+ letters).
 var wordRe = regexp.MustCompile(`[a-zA-Z]{2,}`)
 
-// isContentLine returns true if a line looks like actual Claude output text
-// (contains multiple real English words, not UI chrome).
-func isContentLine(s string) bool {
-	if len(s) < 8 {
+// hasMinWords checks if a line has at least min words and a minimum length.
+func hasMinWords(s string, minWords int, minLen int) bool {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) < minLen {
 		return false
 	}
-	words := wordRe.FindAllString(s, -1)
-	return len(words) >= 3
+	words := wordRe.FindAllString(trimmed, -1)
+	return len(words) >= minWords
 }
 
-// CleanTail returns the last N lines of actual content from a log file.
-func CleanTail(path string, n int) []string {
-	raw := lastNLines(path, n*20)
-	var result []string
-	for _, line := range raw {
-		clean := stripANSI(line)
-		clean = stripNonPrint(clean)
-		clean = strings.TrimSpace(clean)
-		// Collapse whitespace
-		for strings.Contains(clean, "  ") {
-			clean = strings.ReplaceAll(clean, "  ", " ")
+// cleanLine processes a single raw log line, stripping ANSI and non-printable
+// characters while preserving leading indentation.
+func cleanLine(line string) string {
+	clean := stripANSI(line)
+	clean = stripNonPrint(clean)
+	clean = strings.TrimRight(clean, " \t\r\n")
+
+	// Preserve leading indentation (capped at 8 spaces)
+	indent := 0
+	for _, c := range clean {
+		if c == ' ' {
+			indent++
+		} else if c == '\t' {
+			indent += 4
+		} else {
+			break
 		}
-		if !isContentLine(clean) {
-			continue
-		}
-		// Skip known UI noise patterns
-		if isUIChrome(clean) {
-			continue
-		}
-		result = append(result, clean)
 	}
-	// Dedup: drop line if next line starts with it (keystroke echo)
-	deduped := make([]string, 0, len(result))
-	for i, line := range result {
-		if i+1 < len(result) && strings.HasPrefix(result[i+1], line) {
+	body := strings.TrimLeft(clean, " \t")
+	// Collapse runs of spaces in the body
+	for strings.Contains(body, "  ") {
+		body = strings.ReplaceAll(body, "  ", " ")
+	}
+	if indent > 8 {
+		indent = 8
+	}
+	if indent > 0 {
+		return strings.Repeat(" ", indent) + body
+	}
+	return body
+}
+
+// dedupLines removes keystroke echo duplicates and fragment overlaps.
+func dedupLines(lines []string) []string {
+	deduped := make([]string, 0, len(lines))
+	for i, line := range lines {
+		// Drop if next line starts with this line (keystroke echo)
+		if i+1 < len(lines) && strings.HasPrefix(lines[i+1], line) {
 			continue
 		}
+		// Drop exact duplicates
 		if len(deduped) > 0 && deduped[len(deduped)-1] == line {
 			continue
 		}
+		// Drop short lines that are substrings of nearby lines (fragment overlaps)
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) < 20 {
+			isFragment := false
+			for j := max(0, i-5); j < min(len(lines), i+5); j++ {
+				if j == i {
+					continue
+				}
+				if strings.Contains(lines[j], trimmed) && len(lines[j]) > len(line) {
+					isFragment = true
+					break
+				}
+			}
+			if isFragment {
+				continue
+			}
+		}
 		deduped = append(deduped, line)
 	}
-	if len(deduped) > n {
-		deduped = deduped[len(deduped)-n:]
-	}
 	return deduped
+}
+
+// CleanTail returns the last N lines of actual content from a log file.
+// Uses a 2-word minimum to filter out fragments and UI noise.
+func CleanTail(path string, n int) []string {
+	raw := lastNLinesTail(path, n*20, 16384)
+	var cleaned []string
+	for _, line := range raw {
+		clean := cleanLine(line)
+		if strings.TrimSpace(clean) == "" {
+			continue
+		}
+		if !hasMinWords(clean, 2, 8) {
+			continue
+		}
+		if isUIChrome(clean) {
+			continue
+		}
+		cleaned = append(cleaned, clean)
+	}
+	result := dedupLines(cleaned)
+	if len(result) > n {
+		result = result[len(result)-n:]
+	}
+	return result
+}
+
+// CleanLog returns up to maxLines of cleaned log content for the full view.
+// Uses a relaxed 1-word minimum to preserve more content.
+func CleanLog(path string, maxLines int) []string {
+	raw := lastNLinesTail(path, maxLines*20, 65536)
+	var cleaned []string
+	for _, line := range raw {
+		clean := cleanLine(line)
+		if strings.TrimSpace(clean) == "" {
+			continue
+		}
+		if !hasMinWords(clean, 1, 2) {
+			continue
+		}
+		if isUIChrome(clean) {
+			continue
+		}
+		cleaned = append(cleaned, clean)
+	}
+	result := dedupLines(cleaned)
+	if len(result) > maxLines {
+		result = result[len(result)-maxLines:]
+	}
+	return result
 }
 
 func isUIChrome(s string) bool {
 	lower := strings.ToLower(s)
 	noisePatterns := []string{
+		// Shortcut hints
 		"shift+tab to cycle",
 		"esc to interrupt",
 		"esc to cancel",
@@ -175,14 +251,42 @@ func isUIChrome(s string) bool {
 		"enter to select",
 		"to navigate",
 		"? for shortcuts",
+		// System messages
 		"checking for updates",
-		"connector needs auth",
-		"connectors need auth",
 		"resume this session",
+		"script started on",
 		"script done on",
 		"process exited",
 		"press ctrl-d",
 		"ctrl+d again",
+		// Claude Code startup screen
+		"able to read, edit, and execute",
+		"security guide",
+		"trust this folder",
+		"tips for getting started",
+		"welcome back",
+		"run /init",
+		"recent activity",
+		"no recent activity",
+		// Status bar / model info
+		"claude code v",
+		"with high effort",
+		"with low effort",
+		"with standard effort",
+		"claude max",
+		"claude pro",
+		// Thinking / loading indicators
+		"drizzling",
+		"tempering",
+		// MCP / auth / connection
+		"mcp server",
+		"needs auth",
+		"connectors need",
+		"connector needs",
+		"claude.ai conn",
+		// Status bar fragments
+		"organization",
+		"install-slack",
 	}
 	for _, p := range noisePatterns {
 		if strings.Contains(lower, p) {
@@ -192,14 +296,13 @@ func isUIChrome(s string) bool {
 	return false
 }
 
-func lastNLines(path string, n int) []string {
+func lastNLinesTail(path string, n int, tailSize int64) []string {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 
-	const tailSize = 16384
 	info, err := f.Stat()
 	if err != nil {
 		return nil
@@ -211,16 +314,28 @@ func lastNLines(path string, n int) []string {
 	}
 	f.Seek(offset, 0)
 
-	var lines []string
+	var rawLines []string
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 8*1024), 64*1024)
+	scanner.Buffer(make([]byte, 0, 8*1024), 128*1024)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		rawLines = append(rawLines, scanner.Text())
 	}
 
-	if offset > 0 && len(lines) > 0 {
-		lines = lines[1:]
+	if offset > 0 && len(rawLines) > 0 {
+		rawLines = rawLines[1:]
 	}
+
+	// Split each line on \r (carriage return). Claude Code's TUI uses cursor
+	// positioning with \r to paint multiple screen rows in a single \n-delimited
+	// line. Splitting on \r separates the actual response text from UI chrome
+	// (status bar, shortcuts hints, etc.) that would otherwise cause the entire
+	// line to be filtered out.
+	var lines []string
+	for _, line := range rawLines {
+		parts := strings.Split(line, "\r")
+		lines = append(lines, parts...)
+	}
+
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
 	}
