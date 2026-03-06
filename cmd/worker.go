@@ -52,7 +52,9 @@ func RunWorker(sessionID, cwd string, claudeArgs []string) error {
 	}
 
 	s.ClaudePID = cmd.Process.Pid
-	session.WriteSession(s)
+	if err := session.WriteSession(s); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to write session after setting ClaudePID: %v\n", err)
+	}
 
 	go func() {
 		for sig := range sigCh {
@@ -66,7 +68,9 @@ func RunWorker(sessionID, cwd string, claudeArgs []string) error {
 	signal.Stop(sigCh)
 
 	s.Status = session.StatusDone
-	session.WriteSession(s)
+	if err := session.WriteSession(s); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to write session status done: %v\n", err)
+	}
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

@@ -13,6 +13,7 @@ type DetectedStatus string
 
 const (
 	DetectedIdle       DetectedStatus = "IDLE"
+	DetectedWaiting    DetectedStatus = "WAITING"
 	DetectedGenerating DetectedStatus = "GENERATING"
 	DetectedDone       DetectedStatus = "DONE"
 )
@@ -27,6 +28,7 @@ const (
 
 type Session struct {
 	ID        string    `json:"id"`
+	Name      string    `json:"name"`
 	PID       int       `json:"pid"`
 	ClaudePID int       `json:"claude_pid"`
 	CWD       string    `json:"cwd"`

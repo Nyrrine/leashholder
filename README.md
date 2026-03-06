@@ -1,29 +1,77 @@
-# Leash
+<p align="center">
+  <img src="assets/banner.jpg" alt="Leash banner" width="600" />
+</p>
 
-A terminal dashboard for monitoring multiple Claude Code sessions in parallel. Built in Go — single binary, zero runtime dependencies.
+<h1 align="center">Leash</h1>
+<p align="center"><img src="assets/quote.svg" alt="Hong Lu — The Lord of Hongyuan" width="750" /></p>
 
-Instead of tab-cycling to check which Claude sessions need your attention, Leash auto-discovers your sessions, shows their status (IDLE / GENERATING / DONE), detects their mode (code / plan / edit), previews their output, and lets you jump to any session with Enter.
+<p align="center">
+  <img alt="Go 1.24+" src="https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white" />
+  <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow" />
+  <img alt="Platform: WSL2 + Windows Terminal" src="https://img.shields.io/badge/Platform-WSL2%20%2B%20Windows%20Terminal-blue" />
+  <img alt="Version: v1.0.0" src="https://img.shields.io/badge/Version-v1.0.0-purple" />
+</p>
 
-## Demo
+---
 
-```
-LEASH  1 idle
-1 active, 2 total
+Monitor and command multiple AI coding sessions from one place — whether you're running Claude, ChatGPT, Gemini, DeepSeek, or Kimi-K2. Functionally optimized for Claude Code today, with support for other AI assistants coming in future updates. Single binary, zero runtime dependencies.
 
-   #  STATUS      MODE  PROJECT                         AGE
->  1  IDLE        plan  ~/projects/api-server             5m
-!  2  GENERATING  code  ~/projects/frontend               12m
-   3  DONE        ----  ~/Documents/Lord-of-Claudeyuan    2m
+<p align="center">
+  <img src="assets/demo.png" alt="Leash TUI demo" width="900" />
+</p>
 
-  ──────────────────────────────────────────────────────────
-  #1  IDLE        plan  ~/projects/api-server
-  ──────────────────────────────────────────────────────────
-    Sure, I can help with that. Let me take a look at the
-    codebase and figure out what needs to change.
-  ──────────────────────────────────────────────────────────
+## Features
 
-  arrows navigate  enter focus  v full view  s spawn  c clean  q quit
-```
+<details>
+<summary><strong>Session Management</strong></summary>
+
+- Auto-discovery of running Claude Code sessions
+- Real-time status detection (IDLE / GENERATING / DONE)
+- Mode detection (code / plan)
+- Named sessions with custom aliases
+- Rename sessions on the fly with `leash rename`
+
+</details>
+
+<details>
+<summary><strong>Dashboard</strong></summary>
+
+- Live-updating session table with status, mode, project, and age
+- Scrollable preview pane showing the latest output of the selected session
+- Full output view with vi-style navigation
+- Keyboard-driven — no mouse needed
+
+</details>
+
+<details>
+<summary><strong>Spawn & Focus</strong></summary>
+
+- Spawn new Claude sessions directly from the dashboard
+- Windows Terminal integration — opens sessions in new WT windows
+- Auto-detects your Windows Terminal profile
+- Named Windows Terminal windows for easy identification
+- Focus any session's terminal window by pressing Enter
+
+</details>
+
+<details>
+<summary><strong>Monitoring</strong></summary>
+
+- Tails session log files in real time
+- ANSI escape code cleaning pipeline for readable output
+- GENERATING / IDLE / DONE detection from log patterns
+- 2-second polling interval for responsive updates
+
+</details>
+
+<details>
+<summary><strong>Cleanup</strong></summary>
+
+- `leash clean` removes session files for dead or finished processes
+- Automatic dead-process detection
+- Clean from the dashboard with a single keypress
+
+</details>
 
 ## Install
 
@@ -38,12 +86,11 @@ Requires **Go 1.24+** to build. The output is a single static binary.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `leash` | Opens the live-updating TUI dashboard |
-| `leash spawn [-- claude-args...]` | Opens a new Windows Terminal window with a Claude session in the current directory |
-| `leash worker --session-id <id> --cwd <path> [-- claude-args...]` | Internal — runs inside the spawned window. Users don't call this directly |
-| `leash clean` | Removes session files for dead/finished processes |
+- **`leash`** -- Opens the live-updating TUI dashboard
+- **`leash spawn [dir] [--name <name>] [-- claude-args...]`** -- Opens a new Windows Terminal window with a Claude session
+- **`leash rename <id> <name>`** -- Rename a session
+- **`leash clean`** -- Removes session files for dead/finished processes
+- **`leash worker`** -- Internal; runs inside spawned windows (don't call directly)
 
 ## Keybindings
 
@@ -51,7 +98,7 @@ Requires **Go 1.24+** to build. The output is a single static binary.
 
 | Key | Action |
 |-----|--------|
-| `↑` `↓` | Navigate between sessions |
+| `Up` `Down` | Navigate between sessions |
 | `Enter` | Focus the selected session's terminal window |
 | `v` | Open full output view for the selected session |
 | `PgUp` `PgDn` | Scroll the preview pane |
@@ -63,103 +110,24 @@ Requires **Go 1.24+** to build. The output is a single static binary.
 
 | Key | Action |
 |-----|--------|
-| `↑` `↓` / `j` `k` | Scroll one line |
+| `Up` `Down` / `j` `k` | Scroll one line |
 | `PgUp` `PgDn` | Scroll one page |
 | `Home` `End` | Jump to top / bottom |
 | `r` | Refresh content |
 | `Esc` / `q` | Back to dashboard |
 
-## Status Detection
+## Documentation
 
-Status is detected by comparing log file size between 2-second polling intervals:
-
-| Status | Meaning |
-|--------|---------|
-| **GENERATING** | Log is growing — Claude is outputting text, thinking, or using tools |
-| **IDLE** | Log stopped growing — Claude is waiting for your input |
-| **DONE** | Process exited |
-
-## Mode Detection
-
-Mode is parsed from the terminal output:
-
-| Mode | Meaning |
-|------|---------|
-| **code** | Default mode |
-| **plan** | Plan mode active |
-| **edit** | Accept edits mode active |
-
-## How It Works
-
-### Session Registry
-
-```
-~/.leash/
-├── sessions/
-│   └── <id>.json      # Session metadata (PID, cwd, status, timestamps)
-└── logs/
-    └── <id>.log        # Terminal output captured by script(1)
-```
-
-### Spawn Flow
-
-1. `leash spawn` generates a session ID and writes `~/.leash/sessions/<id>.json`
-2. Detects your default Windows Terminal profile (by GUID) and WSL distro name
-3. Launches: `wt.exe -w leash-<id> new-tab --profile <guid> -- wsl.exe -e bash -li -c "leash worker ..."`
-4. The new window opens with your terminal rice intact (custom profile, colors, font, etc.)
-5. `leash worker` updates the session JSON with its PID, then runs `script -qfc "claude <args>" <logfile>`
-6. Claude runs fully interactively — the user works with it as normal
-7. On exit, the session status is set to `done`
-
-### Preview Pipeline
-
-The log from `script(1)` captures raw terminal bytes including ANSI escape codes, cursor positioning, and full-screen TUI redraws. The cleaning pipeline extracts readable output:
-
-1. Reads the last 16KB of the log file (efficient tail read)
-2. Splits lines on carriage returns to separate Claude's response text from UI chrome that shares the same terminal line
-3. Converts cursor-forward ANSI sequences (`ESC[nC`) to spaces
-4. Strips all remaining ANSI escape codes and non-printable characters
-5. Preserves leading indentation (up to 8 spaces) for code blocks
-6. Filters out known UI noise (shortcuts hints, status bars, startup screen, thinking indicators)
-7. Deduplicates keystroke echoes and partial-render fragments
-
-### Focus
-
-Each session gets a named Windows Terminal window (`leash-<id>`). Pressing Enter in the dashboard runs `wt.exe -w leash-<id> focus-tab` to bring it to the foreground.
-
-## Project Structure
-
-```
-leash/
-├── main.go              # Entry point, command dispatch
-├── cmd/
-│   ├── dashboard.go     # Runs the TUI (Bubbletea)
-│   ├── spawn.go         # Opens new WT window, detects profile/distro
-│   ├── worker.go        # Wraps claude via script(1), manages session lifecycle
-│   └── clean.go         # Removes dead session files
-├── session/
-│   ├── types.go         # Session struct, status/mode constants
-│   ├── registry.go      # Read/write session JSON, list/remove sessions
-│   └── status.go        # Status detection, mode detection, log parsing
-└── tui/
-    ├── model.go         # Bubbletea model — polling, navigation, keybindings
-    └── view.go          # Bubbletea view — table, preview pane, styling
-```
-
-## Dependencies
-
-- [bubbletea](https://github.com/charmbracelet/bubbletea) — TUI framework
-- [lipgloss](https://github.com/charmbracelet/lipgloss) — Terminal styling
-
-Everything else is Go standard library.
-
-## Requirements
-
-- **WSL2** on Windows (tested on Ubuntu 24.04)
-- **Windows Terminal** (for spawn/focus features)
-- **Claude Code CLI** (`claude`) installed and on PATH
-- **Go 1.24+** to build
+- [Architecture](docs/architecture.md) -- How Leash works under the hood
+- [Troubleshooting](docs/troubleshooting.md) -- Common issues and fixes
+- [Contributing](docs/contributing.md) -- How to build, hack on, and contribute to Leash
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). Free for anyone to use.
+
+---
+
+<p align="center">
+  <img src="assets/comic.jpg" alt="Leash comic" width="500" />
+</p>

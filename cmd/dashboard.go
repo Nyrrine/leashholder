@@ -10,7 +10,7 @@ import (
 
 func RunDashboard() error {
 	model := tui.NewModel(
-		func() { RunSpawn(nil) },
+		func() { RunSpawn("", "", nil) },
 		func() { RunClean() },
 		func(id string) { FocusSession(id) },
 	)

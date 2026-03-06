@@ -10,9 +10,21 @@ import (
 	"leash/session"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
+	banner = []string{
+		`██╗     ███████╗ █████╗ ███████╗██╗  ██╗`,
+		`██║     ██╔════╝██╔══██╗██╔════╝██║  ██║`,
+		`██║     █████╗  ███████║███████╗███████║`,
+		`██║     ██╔══╝  ██╔══██║╚════██║██╔══██║`,
+		`███████╗███████╗██╔══██║███████║██║  ██║`,
+		`╚══════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝`,
+	}
+
+	version = "v1.0.0"
+
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#c4a7e7"))
@@ -25,6 +37,10 @@ var (
 			Bold(true)
 
 	idleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#a6da95")).
+			Bold(true)
+
+	waitingStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#eb6f92")).
 			Bold(true)
 
@@ -109,6 +125,8 @@ func renderStatus(s session.DetectedStatus) string {
 	switch s {
 	case session.DetectedIdle:
 		return idleStyle.Render(label)
+	case session.DetectedWaiting:
+		return waitingStyle.Render(label)
 	case session.DetectedGenerating:
 		return generatingStyle.Render(label)
 	case session.DetectedDone:
@@ -127,13 +145,6 @@ func renderMode(m session.Mode) string {
 	default:
 		return modeDefaultStyle.Render("code")
 	}
-}
-
-func (m Model) View() string {
-	if m.fullView {
-		return m.viewFullOutput()
-	}
-	return m.viewDashboard()
 }
 
 func (m Model) viewDashboard() string {
@@ -155,13 +166,16 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	// Title
-	title := titleStyle.Render("LEASH")
-	if idle > 0 {
-		title += idleStyle.Render(fmt.Sprintf("  %d idle", idle))
+	// Banner
+	for _, line := range banner {
+		b.WriteString(titleStyle.Render(line) + "\n")
 	}
-	b.WriteString(title + "\n")
-	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%d active, %d total", active, len(m.sessions))))
+	b.WriteString(subtitleStyle.Render(version+"  Go, my Heishou packs.") + "\n")
+	subtitle := fmt.Sprintf("%d active, %d total", active, len(m.sessions))
+	if idle > 0 {
+		subtitle += idleStyle.Render(fmt.Sprintf("  %d idle", idle))
+	}
+	b.WriteString(subtitleStyle.Render(subtitle))
 	b.WriteString("\n\n")
 
 	if m.err != nil {
@@ -174,11 +188,12 @@ func (m Model) viewDashboard() string {
 		b.WriteString("\n")
 	} else {
 		// Table header
-		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s\n",
+		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s  %s\n",
 			headerStyle.Render(fmt.Sprintf("%2s", "#")),
+			headerStyle.Render(fmt.Sprintf("%-16s", "BRANCH")),
 			headerStyle.Render(fmt.Sprintf("%-10s", "STATUS")),
 			headerStyle.Render(fmt.Sprintf("%-4s", "MODE")),
-			headerStyle.Render(fmt.Sprintf("%-30s", "PROJECT")),
+			headerStyle.Render(fmt.Sprintf("%-24s", "PROJECT")),
 			headerStyle.Render(fmt.Sprintf("%6s", "AGE")),
 		))
 
@@ -186,14 +201,25 @@ func (m Model) viewDashboard() string {
 			isSelected := i == m.cursor
 			isDone := info.Status == session.DetectedDone
 
+			branchName := info.Session.Name
+			if branchName == "" {
+				branchName = info.Session.ID
+			}
+			branchLabel := branchName + " Branch"
+			if len(branchLabel) > 16 {
+				branchLabel = branchLabel[:16]
+			}
+
 			project := shortenPath(info.Session.CWD)
-			if len(project) > 30 {
-				project = "..." + project[len(project)-27:]
+			if len(project) > 24 {
+				project = "..." + project[len(project)-21:]
 			}
 
 			cursor := " "
 			if isSelected {
 				cursor = titleStyle.Render(">")
+			} else if info.Status == session.DetectedWaiting {
+				cursor = waitingStyle.Render("?")
 			} else if info.Status == session.DetectedIdle {
 				cursor = idleStyle.Render("!")
 			}
@@ -203,13 +229,25 @@ func (m Model) viewDashboard() string {
 				idx = selectedStyle.Render(fmt.Sprintf("%2d", i+1))
 			}
 
+			branchStr := fmt.Sprintf("%-16s", branchLabel)
+			var branch string
+			if isDone {
+				branch = doneStyle.Render(branchStr)
+			} else if isSelected {
+				branch = selectedStyle.Render(branchStr)
+			} else {
+				branch = titleStyle.Render(branchStr)
+			}
+
 			status := renderStatus(info.Status)
 			mode := renderMode(info.Mode)
 			if isDone {
 				mode = doneStyle.Render("----")
+			} else if info.Status == session.DetectedWaiting {
+				mode = waitingStyle.Render("appr")
 			}
 
-			projStr := fmt.Sprintf("%-30s", project)
+			projStr := fmt.Sprintf("%-24s", project)
 			var proj string
 			if isDone {
 				proj = doneStyle.Render(projStr)
@@ -225,7 +263,7 @@ func (m Model) viewDashboard() string {
 				age = doneStyle.Render(ageStr)
 			}
 
-			b.WriteString(fmt.Sprintf("%s %s  %s  %s  %s  %s\n", cursor, idx, status, mode, proj, age))
+			b.WriteString(fmt.Sprintf("%s %s  %s  %s  %s  %s  %s\n", cursor, idx, branch, status, mode, proj, age))
 		}
 
 		// Preview pane
@@ -241,10 +279,18 @@ func (m Model) viewDashboard() string {
 			border := previewBorderStyle.Render(strings.Repeat("─", previewWidth))
 			b.WriteString("  " + border + "\n")
 
+			previewName := info.Session.Name
+			if previewName == "" {
+				previewName = info.Session.ID
+			}
+			previewMode := renderMode(info.Mode)
+			if info.Status == session.DetectedWaiting {
+				previewMode = waitingStyle.Render("appr")
+			}
 			label := fmt.Sprintf("  %s  %s  %s  %s",
-				previewLabelStyle.Render(fmt.Sprintf("#%d", m.cursor+1)),
+				previewLabelStyle.Render(previewName+" Branch"),
 				renderStatus(info.Status),
-				renderMode(info.Mode),
+				previewMode,
 				dimStyle.Render(shortenPath(info.Session.CWD)),
 			)
 			b.WriteString(label + "\n")
@@ -273,10 +319,10 @@ func (m Model) viewDashboard() string {
 
 				for _, line := range preview[start:end] {
 					display := line
-					if len(display) > previewWidth-4 {
-						display = display[:previewWidth-7] + "..."
+					if ansi.StringWidth(display) > previewWidth-4 {
+						display = ansi.Truncate(display, previewWidth-7, "...")
 					}
-					b.WriteString("  " + previewTextStyle.Render("  "+display) + "\n")
+					b.WriteString(renderPreviewLine(display))
 				}
 
 				if m.previewScroll > 0 {
@@ -290,15 +336,26 @@ func (m Model) viewDashboard() string {
 
 	// Footer
 	b.WriteString("\n")
-	keys := []string{
-		keyStyle.Render("arrows") + footerStyle.Render(" navigate"),
-		keyStyle.Render("enter") + footerStyle.Render(" focus"),
-		keyStyle.Render("v") + footerStyle.Render(" full view"),
-		keyStyle.Render("s") + footerStyle.Render(" spawn"),
-		keyStyle.Render("c") + footerStyle.Render(" clean"),
-		keyStyle.Render("q") + footerStyle.Render(" quit"),
+	if m.renaming {
+		b.WriteString("  " + previewLabelStyle.Render("rename: ") + projectStyle.Render(m.renameInput) + titleStyle.Render("█") + "\n")
+		b.WriteString("  " + dimStyle.Render("enter to confirm, esc to cancel") + "\n")
+	} else {
+		row1 := []string{
+			keyStyle.Render("arrows") + footerStyle.Render(" navigate"),
+			keyStyle.Render("enter") + footerStyle.Render(" focus"),
+			keyStyle.Render("v") + footerStyle.Render(" full view"),
+			keyStyle.Render("s") + footerStyle.Render(" spawn"),
+			keyStyle.Render("n") + footerStyle.Render(" rename"),
+		}
+		row2 := []string{
+			keyStyle.Render("d") + footerStyle.Render(" delete"),
+			keyStyle.Render("x") + footerStyle.Render(" kill"),
+			keyStyle.Render("c") + footerStyle.Render(" clean"),
+			keyStyle.Render("q") + footerStyle.Render(" quit"),
+		}
+		b.WriteString("  " + strings.Join(row1, footerStyle.Render("  ")) + "\n")
+		b.WriteString("  " + strings.Join(row2, footerStyle.Render("  ")) + "\n")
 	}
-	b.WriteString("  " + strings.Join(keys, footerStyle.Render("  ")) + "\n")
 
 	return b.String()
 }
@@ -323,10 +380,18 @@ func (m Model) viewFullOutput() string {
 
 	if m.cursor >= 0 && m.cursor < len(m.sessions) {
 		info := m.sessions[m.cursor]
+		fullViewName := info.Session.Name
+		if fullViewName == "" {
+			fullViewName = info.Session.ID
+		}
+		fullViewModeStr := renderMode(info.Mode)
+		if info.Status == session.DetectedWaiting {
+			fullViewModeStr = waitingStyle.Render("appr")
+		}
 		label := fmt.Sprintf("  %s  %s  %s  %s",
-			previewLabelStyle.Render(fmt.Sprintf("#%d", m.cursor+1)),
+			previewLabelStyle.Render(fullViewName+" Branch"),
 			renderStatus(info.Status),
-			renderMode(info.Mode),
+			fullViewModeStr,
 			dimStyle.Render(shortenPath(info.Session.CWD)),
 		)
 		b.WriteString(label + "\n")
@@ -351,10 +416,10 @@ func (m Model) viewFullOutput() string {
 
 		for _, line := range m.fullViewLines[start:end] {
 			display := line
-			if len(display) > previewWidth-4 {
-				display = display[:previewWidth-7] + "..."
+			if ansi.StringWidth(display) > previewWidth-4 {
+				display = ansi.Truncate(display, previewWidth-7, "...")
 			}
-			b.WriteString("  " + previewTextStyle.Render("  "+display) + "\n")
+			b.WriteString(renderPreviewLine(display))
 		}
 
 		// Pad remaining lines so footer stays at the bottom
@@ -370,6 +435,9 @@ func (m Model) viewFullOutput() string {
 	if total > visible {
 		endLine := min(m.fullViewScroll+visible, total)
 		pos := fmt.Sprintf("lines %d–%d of %d", m.fullViewScroll+1, endLine, total)
+		if m.fullViewFollow {
+			pos += "  " + generatingStyle.Render("FOLLOW")
+		}
 		b.WriteString("  " + dimStyle.Render(pos) + "\n")
 	} else {
 		b.WriteString("\n")
@@ -377,14 +445,26 @@ func (m Model) viewFullOutput() string {
 
 	// Footer
 	b.WriteString("\n")
-	keys := []string{
+	fvRow1 := []string{
 		keyStyle.Render("esc") + footerStyle.Render(" back"),
 		keyStyle.Render("↑↓/jk") + footerStyle.Render(" scroll"),
 		keyStyle.Render("pgup/pgdn") + footerStyle.Render(" page"),
+	}
+	fvRow2 := []string{
 		keyStyle.Render("home/end") + footerStyle.Render(" jump"),
 		keyStyle.Render("r") + footerStyle.Render(" refresh"),
 	}
-	b.WriteString("  " + strings.Join(keys, footerStyle.Render("  ")) + "\n")
+	b.WriteString("  " + strings.Join(fvRow1, footerStyle.Render("  ")) + "\n")
+	b.WriteString("  " + strings.Join(fvRow2, footerStyle.Render("  ")) + "\n")
 
 	return b.String()
+}
+
+// renderPreviewLine renders a single preview/full-view line.
+// Lines with embedded ANSI colors are output raw; plain lines use previewTextStyle.
+func renderPreviewLine(display string) string {
+	if strings.Contains(display, "\x1b[") {
+		return "    " + display + "\x1b[0m\n"
+	}
+	return "  " + previewTextStyle.Render("  "+display) + "\n"
 }

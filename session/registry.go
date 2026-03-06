@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 func LeashDir() string {
@@ -94,7 +96,38 @@ func ListSessions() ([]*Session, error) {
 }
 
 func RemoveSession(id string) error {
-	os.Remove(SessionPath(id))
-	os.Remove(LogPath(id))
-	return nil
+	err1 := os.Remove(SessionPath(id))
+	if errors.Is(err1, os.ErrNotExist) {
+		err1 = nil
+	}
+	err2 := os.Remove(LogPath(id))
+	if errors.Is(err2, os.ErrNotExist) {
+		err2 = nil
+	}
+	return errors.Join(err1, err2)
+}
+
+// RenameSession changes the name of a session.
+func RenameSession(id, name string) error {
+	s, err := ReadSession(id)
+	if err != nil {
+		return fmt.Errorf("read session: %w", err)
+	}
+	s.Name = name
+	return WriteSession(s)
+}
+
+// KillSession sends SIGTERM to the session's PID and marks it as done.
+func KillSession(id string) error {
+	s, err := ReadSession(id)
+	if err != nil {
+		return fmt.Errorf("read session: %w", err)
+	}
+	if s.PID > 0 {
+		if err := syscall.Kill(s.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("kill pid %d: %w", s.PID, err)
+		}
+	}
+	s.Status = StatusDone
+	return WriteSession(s)
 }
