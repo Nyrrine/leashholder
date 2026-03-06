@@ -14,7 +14,7 @@
 
 ---
 
-Monitor and command multiple AI coding sessions from one place — whether you're running Claude, ChatGPT, Gemini, DeepSeek, or Kimi-K2. Functionally optimized for Claude Code today, with support for other AI assistants coming in future updates. Single binary, zero runtime dependencies.
+Monitor and command multiple AI CLI sessions from one place whether you're running Claude, ChatGPT, Gemini, DeepSeek, or Kimi-K2. Functionally optimized for Claude Code today, with support for other AI assistants coming in future updates. Single binary, zero runtime dependencies.
 
 <p align="center">
   <img src="assets/demo.png" alt="Leash TUI demo" width="900" />
