@@ -2,7 +2,7 @@
   <img src="assets/banner.jpg" alt="Leash banner" width="600" />
 </p>
 
-<h1 align="center">Leash</h1>
+<h1 align="center">Leash Holder</h1>
 <p align="center"><img src="assets/quote.svg" alt="Hong Lu — The Lord of Hongyuan" width="750" /></p>
 
 <p align="center">
@@ -124,7 +124,7 @@ Requires **Go 1.24+** to build. The output is a single static binary.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Free for anyone to use.
+MIT — see [LICENSE](LICENSE). Free for anyone to use!
 
 ---
 
