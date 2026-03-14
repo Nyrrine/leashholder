@@ -15,13 +15,15 @@ func RunDashboard() error {
 
 	for {
 		model := tui.NewModel(
-			func() {
+			func() string {
 				id := session.GenerateID()
 				name := session.PickBranchName()
 				cwd, _ := os.Getwd()
 				if err := ptyMgr.Spawn(id, name, cwd, nil); err != nil {
 					fmt.Fprintf(os.Stderr, "spawn error: %v\n", err)
+					return ""
 				}
+				return id
 			},
 			func() { RunClean() },
 			func(id string) { FocusSession(id) },

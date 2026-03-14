@@ -26,7 +26,7 @@ type Model struct {
 	width       int
 	height      int
 	err         error
-	OnSpawn     func()
+	OnSpawnTab  func() string // spawns a tab session, returns ID (or "" on error)
 	OnClean     func()
 	OnFocus     func(id string)
 
@@ -47,12 +47,15 @@ type Model struct {
 	AttachID     string               // set when user wants to attach; causes TUI to quit
 }
 
+// spawnedMsg is sent when a tab session has been spawned and should be attached.
+type spawnedMsg struct{ id string }
+
 // previewBuffer is how many preview lines to cache for scrolling.
 const previewBuffer = 50
 
-func NewModel(onSpawn, onClean func(), onFocus func(string)) Model {
+func NewModel(onSpawnTab func() string, onClean func(), onFocus func(string)) Model {
 	return Model{
-		OnSpawn:      onSpawn,
+		OnSpawnTab:   onSpawnTab,
 		OnClean:      onClean,
 		OnFocus:      onFocus,
 		prevLogSize:  make(map[string]int64),
@@ -144,6 +147,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(m.makeRefreshCmd(), tickCmd())
 
+	case spawnedMsg:
+		if msg.id != "" {
+			m.AttachID = msg.id
+			return m, tea.Quit
+		}
+
 	case sessionsMsg:
 		// Detect GENERATING → IDLE transitions for bell
 		shouldBell := false
@@ -223,10 +232,12 @@ func (m Model) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "s":
-		if m.OnSpawn != nil {
-			go m.OnSpawn()
+		if m.OnSpawnTab != nil {
+			fn := m.OnSpawnTab
+			return m, func() tea.Msg {
+				return spawnedMsg{id: fn()}
+			}
 		}
-		return m, nil
 
 	case "c":
 		if m.OnClean != nil {
