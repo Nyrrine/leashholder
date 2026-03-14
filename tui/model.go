@@ -41,6 +41,10 @@ type Model struct {
 
 	renaming    bool   // text input mode for renaming
 	renameInput string // current rename text
+
+	// Tab session support
+	IsTabSession func(id string) bool // checks if a session is a tab (PTY) session
+	AttachID     string               // set when user wants to attach; causes TUI to quit
 }
 
 // previewBuffer is how many preview lines to cache for scrolling.
@@ -272,9 +276,15 @@ func (m Model) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
-		if m.OnFocus != nil && m.cursor >= 0 && m.cursor < len(m.sessions) {
+		if m.cursor >= 0 && m.cursor < len(m.sessions) {
 			id := m.sessions[m.cursor].Session.ID
-			go m.OnFocus(id)
+			if m.IsTabSession != nil && m.IsTabSession(id) {
+				m.AttachID = id
+				return m, tea.Quit
+			}
+			if m.OnFocus != nil {
+				go m.OnFocus(id)
+			}
 		}
 
 	case "v":

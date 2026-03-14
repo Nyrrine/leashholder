@@ -342,7 +342,7 @@ func (m Model) viewDashboard() string {
 	} else {
 		row1 := []string{
 			keyStyle.Render("arrows") + footerStyle.Render(" navigate"),
-			keyStyle.Render("enter") + footerStyle.Render(" focus"),
+			keyStyle.Render("enter") + footerStyle.Render(" attach"),
 			keyStyle.Render("v") + footerStyle.Render(" full view"),
 			keyStyle.Render("s") + footerStyle.Render(" spawn"),
 			keyStyle.Render("n") + footerStyle.Render(" rename"),
@@ -351,6 +351,7 @@ func (m Model) viewDashboard() string {
 			keyStyle.Render("d") + footerStyle.Render(" delete"),
 			keyStyle.Render("x") + footerStyle.Render(" kill"),
 			keyStyle.Render("c") + footerStyle.Render(" clean"),
+			keyStyle.Render("ctrl+s") + footerStyle.Render(" detach"),
 			keyStyle.Render("q") + footerStyle.Render(" quit"),
 		}
 		b.WriteString("  " + strings.Join(row1, footerStyle.Render("  ")) + "\n")
