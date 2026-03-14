@@ -26,7 +26,8 @@ type Model struct {
 	width       int
 	height      int
 	err         error
-	OnSpawnTab  func() string // spawns a tab session, returns ID (or "" on error)
+	OnSpawnTab  func() // spawn as tab in same window
+	OnSpawnWin  func() // spawn as separate window
 	OnClean     func()
 	OnFocus     func(id string)
 
@@ -41,21 +42,15 @@ type Model struct {
 
 	renaming    bool   // text input mode for renaming
 	renameInput string // current rename text
-
-	// Tab session support
-	IsTabSession func(id string) bool // checks if a session is a tab (PTY) session
-	AttachID     string               // set when user wants to attach; causes TUI to quit
 }
-
-// spawnedMsg is sent when a tab session has been spawned and should be attached.
-type spawnedMsg struct{ id string }
 
 // previewBuffer is how many preview lines to cache for scrolling.
 const previewBuffer = 50
 
-func NewModel(onSpawnTab func() string, onClean func(), onFocus func(string)) Model {
+func NewModel(onSpawnTab, onSpawnWin, onClean func(), onFocus func(string)) Model {
 	return Model{
 		OnSpawnTab:   onSpawnTab,
+		OnSpawnWin:   onSpawnWin,
 		OnClean:      onClean,
 		OnFocus:      onFocus,
 		prevLogSize:  make(map[string]int64),
@@ -147,12 +142,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(m.makeRefreshCmd(), tickCmd())
 
-	case spawnedMsg:
-		if msg.id != "" {
-			m.AttachID = msg.id
-			return m, tea.Quit
-		}
-
 	case sessionsMsg:
 		// Detect GENERATING → IDLE transitions for bell
 		shouldBell := false
@@ -233,11 +222,15 @@ func (m Model) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		if m.OnSpawnTab != nil {
-			fn := m.OnSpawnTab
-			return m, func() tea.Msg {
-				return spawnedMsg{id: fn()}
-			}
+			go m.OnSpawnTab()
 		}
+		return m, nil
+
+	case "ctrl+s":
+		if m.OnSpawnWin != nil {
+			go m.OnSpawnWin()
+		}
+		return m, nil
 
 	case "c":
 		if m.OnClean != nil {
@@ -287,15 +280,9 @@ func (m Model) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
-		if m.cursor >= 0 && m.cursor < len(m.sessions) {
+		if m.OnFocus != nil && m.cursor >= 0 && m.cursor < len(m.sessions) {
 			id := m.sessions[m.cursor].Session.ID
-			if m.IsTabSession != nil && m.IsTabSession(id) {
-				m.AttachID = id
-				return m, tea.Quit
-			}
-			if m.OnFocus != nil {
-				go m.OnFocus(id)
-			}
+			go m.OnFocus(id)
 		}
 
 	case "v":

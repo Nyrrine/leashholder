@@ -75,7 +75,7 @@ func calcWindowSlot(activeCount int) (x, y int) {
 	return x, y
 }
 
-func RunSpawn(dir string, name string, claudeArgs []string) error {
+func RunSpawn(dir string, name string, claudeArgs []string, tabMode bool) error {
 	if err := session.EnsureDirs(); err != nil {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}
@@ -142,22 +142,31 @@ func RunSpawn(dir string, name string, claudeArgs []string) error {
 		profileFlag = fmt.Sprintf("--profile '%s' ", escape(guid))
 	}
 
-	// Count active sessions to determine stacking position.
-	activeSessions, _ := session.ListSessions()
-	activeCount := 0
-	for _, as := range activeSessions {
-		if as.Status != session.StatusDone && as.ID != id {
-			activeCount++
-		}
-	}
-	posX, posY := calcWindowSlot(activeCount)
-
-	windowName := "leash-" + id
 	tabTitle := fmt.Sprintf("leash: %s Branch", name)
-	shellCmd := fmt.Sprintf(
-		`wt.exe -w '%s' --size %d,%d --pos %d,%d new-tab %s--title '%s' -- wsl.exe -e bash -li -c '%s'`,
-		escape(windowName), compactCols, compactRows, posX, posY, profileFlag, escape(tabTitle), escape(innerCmd),
-	)
+
+	var shellCmd string
+	if tabMode {
+		// Tab mode: create a new tab in the current terminal window.
+		shellCmd = fmt.Sprintf(
+			`wt.exe -w 0 new-tab %s--title '%s' -- wsl.exe -e bash -li -c '%s'`,
+			profileFlag, escape(tabTitle), escape(innerCmd),
+		)
+	} else {
+		// Window mode: create a new standalone terminal window.
+		activeSessions, _ := session.ListSessions()
+		activeCount := 0
+		for _, as := range activeSessions {
+			if as.Status != session.StatusDone && as.ID != id {
+				activeCount++
+			}
+		}
+		posX, posY := calcWindowSlot(activeCount)
+		windowName := "leash-" + id
+		shellCmd = fmt.Sprintf(
+			`wt.exe -w '%s' --size %d,%d --pos %d,%d new-tab %s--title '%s' -- wsl.exe -e bash -li -c '%s'`,
+			escape(windowName), compactCols, compactRows, posX, posY, profileFlag, escape(tabTitle), escape(innerCmd),
+		)
+	}
 
 	cmd := exec.Command("bash", "-c", shellCmd)
 	if err := cmd.Start(); err != nil {

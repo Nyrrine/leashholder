@@ -20,7 +20,7 @@ func main() {
 	switch args[0] {
 	case "spawn":
 		dir, name, claudeArgs := parseSpawnArgs(args[1:])
-		if err := cmd.RunSpawn(dir, name, claudeArgs); err != nil {
+		if err := cmd.RunSpawn(dir, name, claudeArgs, false); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
